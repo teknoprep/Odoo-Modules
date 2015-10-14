@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<openerp>
+  <data>
+    
+    <record id="invoice_form" model="ir.ui.view">
+      <field name="name">inherit.account.invoice.form</field>
+      <field name="model">account.invoice</field>
+      <field name="inherit_id" ref="account.invoice_form" />
+      <field name="arch" type="xml">
+        <field name="user_id" position="replace">
+          <field name="user_id" on_change="onchange_commission(user_id)" domain="[('is_salesman','=',True)]" attrs="{'readonly':[('comm_move_id','!=',False)]}"/>
+          <field name="comm_rate_id" widget="selection" attrs="{'readonly':[('comm_move_id','!=',False)]}"/>
+          <field name="no_commission"/>
+          <field name="commission_paid"/>
+        </field>
+        <field name="move_id" position="after">
+          <field name="comm_move_id" />
+          <field name="cost_of_goods" />
+        </field>
+      </field>
+    </record>
+  
+  </data>
+</openerp>

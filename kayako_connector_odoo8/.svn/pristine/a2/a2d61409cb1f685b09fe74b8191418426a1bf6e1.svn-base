@@ -1,0 +1,4 @@
+"id","name","model_id:id","group_id:id","perm_read","perm_write","perm_create","perm_unlink"
+"access_kayako_config","access_kayako_config","model_kayako_config",,"1","1","1","1"
+"access_kayako_department","access_kayako_department","model_kayako_department",,1,1,1,1
+"access_kayako_logs","access_kayako_logs","model_kayako_logs",,1,1,1,1

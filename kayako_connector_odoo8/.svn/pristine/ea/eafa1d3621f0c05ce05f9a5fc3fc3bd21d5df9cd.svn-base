@@ -1,0 +1,455 @@
+# -*- encoding: utf-8 -*-
+from openerp.osv import fields, osv
+from openerp.tools.translate import _
+import logging 
+
+import base64
+import hashlib
+import hmac
+import logging
+import random
+import urllib
+import urllib2
+
+import time
+from datetime import datetime
+from kayako import KayakoAPI
+from kayako import Ticket, TicketAttachment , TicketNote, TicketPost, TicketPriority, TicketStatus, TicketType, Staff, Department,User,UserOrganization
+from kayako.core.lib import FOREVER
+
+_logger = logging.getLogger(__name__)
+
+def _generate_signature(secret_key):
+    salt = str(random.getrandbits(32))
+    encrypted_signature = hmac.new(secret_key, msg=salt, digestmod=hashlib.sha256).digest()
+    b64_encoded_signature = base64.b64encode(encrypted_signature)
+    return salt, b64_encoded_signature
+
+def _post_data(**parameters):
+    '''
+    Turns parameters into application/x-www-form-urlencoded format.
+    '''
+    data = None
+    first = True
+    for key, value in parameters.iteritems():
+        if isinstance(value, list):
+            if len(value):
+                for sub_value in value:
+                    if first:
+                        data = '%s[]=%s' % (key, urllib2.quote(sub_value))
+                        first = False
+                    else:
+                        data = '%s&%s[]=%s' % (data, key, urllib2.quote(sub_value))
+            else:
+                if first:
+                    data = '%s[]=' % key
+                    first = False
+                else:
+                    data = '%s&%s[]=' % (data, key)
+        elif first:
+            data = '%s=%s' % (key, urllib2.quote(value))
+            first = False
+        else:
+            data = '%s&%s=%s' % (data, key, urllib2.quote(value))
+    return data
+
+def _sanitize_parameter(parameter):
+    '''
+    Sanitize a specific object.
+    
+    - Convert None types to empty strings
+    - Convert FOREVER to '0'
+    - Convert lists/tuples into sanitized lists
+    - Convert objects to strings
+    '''
+
+    if parameter is None:
+        return ''
+    elif parameter is FOREVER:
+        return '0'
+    elif parameter is True:
+        return '1'
+    elif parameter is False:
+        return '0'
+    elif isinstance(parameter, datetime):
+        return str(int(time.mktime(parameter.timetuple())))
+    elif isinstance(parameter, (list, tuple, set)):
+        return [_sanitize_parameter(item) for item in parameter if item not in ['', None]]
+    else:
+        return str(parameter)
+
+def _sanitize_parameters(**parameters):
+    result = dict()
+    for key, value in parameters.iteritems():
+        result[key] = _sanitize_parameter(value)
+    return result
+
+def save_status(url, api_key, secret_key, ticket_id, status_id):
+    controller = '/Tickets/Ticket/PUT/%s/' %ticket_id
+    url = '%s%s' % (url, urllib.quote(controller))
+
+    salt, b64signature = _generate_signature(secret_key)
+    
+    parameters = {
+                    'apikey'     :  api_key,
+                    'salt'       :  salt,
+                    'signature'  :  b64signature,
+    }
+    data = _post_data(**_sanitize_parameters(**parameters))
+    request = urllib2.Request(url, data=data, headers={'Content-length' : len(data) if data else 0})
+    response = urllib2.urlopen(request)
+    return response
+
+class kayako_config(osv.osv):
+    _name = "kayako.config"
+    _rec_name = 'api_url'
+    _columns = {
+                    'api_url'         : fields.char('API URL', size=200, required=True,help="Please remove '?' sign from url  "),
+                    'api_key'         : fields.char('API Key', size=200, required=True),
+                    'secret_key'      : fields.char('Secret Key', size=300, required=True),
+                    'state'           : fields.selection([('draft', 'Draft'), ('connected', 'Connected'),('error','Error')], 'Status', readonly=True),
+                    'department_id'   : fields.many2one('kayako.department', 'Department'),
+                    'product_id'      : fields.many2one('product.product', 'Service Charge'),
+                    'ticket_state'    : fields.many2one('project.task.type','Ticket Status to Import'),
+                    'export_state'    : fields.many2one('project.task.type', 'Export Ticket Status'),
+                    'create_user'     : fields.boolean("Create User",help="If this field is true, it will create a user if ticket user is not present but user organization present in openerp "),
+                    'admin_email'     : fields.char('Admin Email',size=64),
+                    'log_ids'         : fields.one2many('kayako.logs', 'config_id', 'Logs')
+    }
+
+    _defaults = {
+                    'state'       : 'draft',
+                    'create_user' : True
+     }
+    
+    def test_connection(self, cr, uid, ids, context=None):
+        sobj =  self.browse(cr, uid, ids[0])
+        api = KayakoAPI(sobj.api_url, sobj.api_key, sobj.secret_key)
+        if api:
+            self.write(cr, uid, ids[0], {'state': 'connected'})
+        else:
+            raise osv.except_osv(('Error'),('Error in Connection '))
+        return True
+
+    def import_ticket_status(self, cr, uid, ids, context=None):
+        ptt_pool = self.pool.get('project.task.type')
+        klog          = self.pool.get('kayako.logs')
+
+        sobj = self.browse(cr, uid, ids[0])
+
+        existing_type_ids = ptt_pool.search(cr,uid,[('kayako_id','=',False)])
+        if existing_type_ids:
+            raise osv.except_osv(_("Can not Proceed!"), _("First delete all default stages "))
+
+        kayako_obj = KayakoAPI(sobj.api_url, sobj.api_key, sobj.secret_key)
+        states = kayako_obj.get_all(TicketStatus)
+        
+        for state in states:
+            type_ids = ptt_pool.search(cr, uid, [('kayako_id', '=', state.id)])
+            if not type_ids:
+                ptt_pool.create(cr, uid, {'name' : state.title, 'kayako_id' : state.id, 'sequence' : state.displayorder})
+        
+        klog.create(cr, uid, {'config_id' : sobj.id,  'message': "Ticket Status Synced: " + ", ".join([x.title for x in states])})
+
+        return True
+
+    def import_departments(self, cr, uid, ids, context=None):
+        dept_pool = self.pool.get('kayako.department')
+        klog      = self.pool.get('kayako.logs')
+
+        sobj = self.browse(cr, uid, ids[0])
+
+        kayako_obj = KayakoAPI(sobj.api_url, sobj.api_key, sobj.secret_key)
+        departments = kayako_obj.get_all(Department)
+
+        for dept in departments:
+            dept_ids =  dept_pool.search(cr, uid, [('kayako_id', '=', dept.id)])
+            if not dept_ids:
+                dept_pool.create(cr, uid, {'name' : dept.title, 'kayako_id' : dept.id})
+
+        klog.create(cr, uid, {'config_id' : sobj.id,  'message': "Departments Synced: " + ", ".join([x.title for x in departments])})
+            
+        return True
+
+
+    
+    def get_staff_user(self, cr, uid, staff_recs, staff_id):
+        user_obj = self.pool.get('res.users')
+        employee_obj = self.pool.get('hr.employee')
+        user_id = False
+        for staff in staff_recs:
+            if staff.id == staff_id:
+                user_ids = user_obj.search(cr, uid, [('login', '=', staff.username)])
+                if user_ids:
+                    user_id = user_ids[0]
+                else:
+                    user_id = user_obj.create(cr, uid, {
+                                              'name' : staff.firstname + " " + staff.lastname,
+                                              'login' : staff.username,
+                                              'email' : staff.email,
+                                              })
+                #Creating Employee related to user
+                if not employee_obj.search(cr, uid, [('user_id', '=', user_id)]):
+                    employee_obj.create(cr, uid, {
+                                                    'name' : staff.firstname + " " + staff.lastname,
+                                                    'user_id' : user_id,
+                                                  })
+                return user_id
+        return False
+    
+    def import_ticket(self, cr, uid, ids, context=None):
+        task_pool     = self.pool.get('project.task')
+        ttype_pool    = self.pool.get('project.task.type')
+        project_pool  = self.pool.get('project.project')
+        partner_pool  = self.pool.get('res.partner')
+        klog          = self.pool.get('kayako.logs')
+
+        sobj = self.browse(cr, uid, ids[0])
+
+        if not sobj.ticket_state: 
+            raise osv.except_osv(_("Can not Proceed!"), _("Missing Tickets status in configuration!"))
+        
+        if not sobj.department_id:
+            raise osv.except_osv(_("Can not Proceed!"), _("Missing Department in configuration!"))
+
+        kayako_obj = KayakoAPI(sobj.api_url, sobj.api_key, sobj.secret_key)
+
+
+        # UPDATE STATUS BACK TO KAYAKO FIRST 
+        
+        update_task_ids = task_pool.search(cr, uid, [('update_state','=',True)])
+        klog.create(cr, uid, {'config_id':sobj.id,  'message': " %s Tickets to update back to kayako  ..." %(len(update_task_ids))})
+
+        for task in task_pool.browse(cr, uid, update_task_ids):
+            ticket = kayako_obj.get(Ticket, task.kayako_ticket_id)
+            if ticket:
+                _logger.warning('Ticket %s : Status ID %s' %(ticket.displayid, ticket.statusid))
+                if ticket.statusid != task.kayako_config_id.export_state.kayako_id:
+                    ticket.ticketstatusid = task.kayako_config_id.export_state and task.kayako_config_id.export_state.kayako_id
+                    ticket.save() 
+
+                    response = save_status(sobj.api_url, sobj.api_key, sobj.secret_key, ticket.id, task.kayako_config_id.export_state.kayako_id)
+                    if response and response.code == 200:
+                        klog.create(cr, uid, {'config_id':sobj.id,  'message': "Invoiced Ticket Updated ..."+ str(ticket.id)+" "+str(ticket.displayid)})
+                        task.write({'update_state':False, 'stage_id' : task.kayako_config_id.export_state.id })
+                    else:
+                        klog.create(cr, uid, {'config_id':sobj.id,  'message': "Invoiced Ticket Update Fail ..."+ str(ticket.id)+" "+str(ticket.displayid)})
+                else:
+                    task.write({'update_state':False, 'stage_id' : task.kayako_config_id.export_state.id})
+                    
+        # Start Import        
+        tickets = kayako_obj.get_all(Ticket, sobj.department_id.kayako_id, ticketstatusid=sobj.ticket_state.kayako_id)
+        if not tickets:
+            _logger.warning('No Tickets to download')
+
+        kayako_ticket_ids = []
+        
+        if tickets:
+            worker_staff = kayako_obj.get_all(Staff)
+            
+        for ticket in tickets:
+            
+            ticket_handle = str(ticket.id) + " " + str(ticket.displayid)
+
+            kayako_ticket_ids.append(ticket.id)
+            task_exists = task_pool.search(cr, uid, [('kayako_ticket_id', '=', ticket.id)])
+            if task_exists:
+
+                task_val = {}
+                
+                task = task_pool.browse(cr, uid, task_exists[0])
+                if task.name != ticket.subject:
+                    task_val['name'] = ticket.subject
+
+                if task.stage_id.id != sobj.ticket_state.id:
+                    task_val['stage_id'] = sobj.ticket_state.id
+                    
+                user = kayako_obj.get(User, ticket.userid)
+                if not user.userorganizationid:
+                    klog.create(cr, uid, {'config_id':sobj.id,  'message': "Organization is missing, Update aborted..."+ str(ticket.id)+" "+str(ticket.displayid)})
+                    continue
+
+                customer_data = kayako_obj.get(UserOrganization, user.userorganizationid)
+                customer_ids = partner_pool.search(cr, uid, [('name','=', customer_data.name)])
+                if not customer_ids:
+                    klog.create(cr, uid, {'config_id':sobj.id, 'message': "Organization is not found, Update aborted... - Ticket: %s" + str(ticket.id) + " " + str(ticket.displayid) })
+                    continue
+                elif task.project_id.partner_id.id != customer_ids[0]:
+                    task_val['partner_id'] = customer_ids[0]
+                    task_val['project_id'] = project_pool.search(cr,uid,[('partner_id','=',customer_ids[0])])
+
+                if task_val:                        
+                    task_pool.write(cr, uid, [task_exists[0]], task_val)
+                    klog.create(cr, uid, {'config_id':sobj.id, 'message': "Ticket Updated : " + str(ticket.id) + " " + str(ticket.displayid) })
+                else:
+                    klog.create(cr, uid, {'config_id':sobj.id, 'message': "Ticket Update - No Change : " + str(ticket.id) + " " + str(ticket.displayid) })
+                    
+
+                if ticket.timetracks:
+                    for timetrack in ticket.timetracks:
+                        hours = round(float(timetrack.timespent) / 3600,2)
+                        work_ids = self.pool.get('project.task.work').search(cr, uid, [('kayako_timetrack_id','=', timetrack.id)])
+                        work_line = {
+                                        'name' : timetrack.contents,
+                                        'task_id' : task_exists[0],
+                                        'user_id' : self.get_staff_user(cr, uid, worker_staff, timetrack.workerstaffid) or 1,
+                                        'date' : str(timetrack.worktimeline) or False,
+                                        'hours' : hours,
+                                        'kayako_timetrack_id':timetrack.id
+                                    }
+                        if not work_ids: 
+                            self.pool.get('project.task.work').create(cr, uid, work_line)
+                        else:
+                            self.pool.get('project.task.work').write(cr, uid, work_ids, work_line)
+                continue
+
+            # FROM HERE ON -- IF TASK IS NOT EXISTS
+            user = kayako_obj.get(User, ticket.userid)
+            if not user.userorganizationid:
+                klog.create(cr, uid, {'config_id':sobj.id,  'message': "Organization is missing, Skipped..."+ str(ticket.id)+" "+str(ticket.displayid)})
+                continue
+
+            user_email=(user.email)[0]
+            inactive_taskid = task_pool.search(cr, uid, [('kayako_ticket_id', '=', ticket.id),('active', '=', False)])
+            if inactive_taskid:
+                self.pool.get('project.task').write(cr, uid,inactive_taskid, {'active':True,'stage_id':stage_id})
+                continue
+
+            partner_ids = partner_pool.search(cr, uid, [('name','=', user.fullname)])
+            if partner_ids:
+                partner_id = partner_ids[0]
+                partner = partner_pool.browse(cr, uid, partner_id)
+                if not partner.parent_id:
+                    customer_data = kayako_obj.get(UserOrganization, user.userorganizationid)
+                    klog.create(cr, uid, {'config_id':sobj.id, 'message': "User (%s) Exists, User's Organization (%s) missing, Skipped... - Ticket: %s" %(user.fullname, customer_data.name, ticket_handle)})
+                    continue
+                else:
+                    customer_id = partner.parent_id.id
+                    
+            elif sobj.create_user:
+                customer_data = kayako_obj.get(UserOrganization, user.userorganizationid)
+                customer_ids = partner_pool.search(cr, uid, [('name','=', customer_data.name)])
+                if not customer_ids:
+                    klog.create(cr, uid, {'config_id':sobj.id, 'message': "User (%s) and Organization (%s), both missing, Skipped... - Ticket: %s" %(user.fullname, customer_data.name, ticket_handle) })
+                    continue
+                else:
+                    customer_id = customer_ids[0]
+                    partner_id = partner_pool.create(cr, uid, {'name': user.fullname, 'email' : user_email, 'is_company': False, 'parent_id':customer_id, 'kayako_user_id':ticket.userid })
+            else:
+                klog.create(cr, uid, {'config_id':sobj.id, 'message': "User is missing, Skipped..."+ str(ticket.id)+" "+str(ticket.displayid)})
+                continue
+
+            print "Customer IDS", customer_id
+
+            project_ids = project_pool.search(cr, uid, [('partner_id','=', customer_id)])
+            if not project_ids:
+                customer = partner_pool.browse(cr, uid, customer_id)
+                project_id = project_pool.create(cr, uid, { 'name' : customer.name, 'partner_id' : customer.id})
+            else:
+                project_id = project_ids[0]
+
+            
+            task_vals = {
+                            'project_id' : project_id,
+                            'name'       : ticket.subject,
+                            'partner_id' : partner_id,
+                            'kayako_ticket_id' : ticket.id,
+                            'kayako_ticket_displayid' : ticket.displayid,
+                            'kayako_config_id' :sobj.id,
+                            'stage_id'   :sobj.ticket_state.id
+            }
+
+            task_id = task_pool.create(cr, uid, task_vals)
+            if ticket.timetracks:
+                for timetrack in ticket.timetracks:
+                    hours = round(float(timetrack.timespent) / 3600,2)
+                    self.pool.get('project.task.work').create(cr, uid, {
+                                                                        'name' : timetrack.contents,
+                                                                        'task_id' : task_id,
+                                                                        'user_id' : self.get_staff_user(cr, uid, worker_staff, timetrack.workerstaffid) or 1,
+                                                                        'date' : str(timetrack.worktimeline) or False,
+                                                                        'hours' : hours,
+                                                                        'kayako_timetrack_id':timetrack.id
+                                                                        })
+            klog.create(cr, uid, {'config_id':sobj.id, 'message': "Ticket Created Successfully :" +str(ticket.id)+" "+str(ticket.displayid)})
+
+        # Update moved status tickets  - 
+        moved_task_ids = task_pool.search(cr, uid, [('kayako_ticket_id', 'not in', kayako_ticket_ids), ('stage_id', '=', sobj.ticket_state.id), ('invoiced', '!=', True)])
+        klog.create(cr, uid, {'config_id':sobj.id, 'message': "Checking/Updating Status of %s Tickets" %(len(moved_task_ids))})
+
+        if moved_task_ids:
+            tt_status_map = dict( [ (tt.kayako_id, tt.id) for tt in ttype_pool.browse(cr, uid, ttype_pool.search(cr, uid, [])) if tt.kayako_id ] )
+
+            for moved_task in task_pool.browse(cr, uid, moved_task_ids):
+                mv_ticket = kayako_obj.get(Ticket, moved_task.kayako_ticket_id)
+                if moved_task.stage_id.id != tt_status_map[mv_ticket.statusid]:
+                    moved_task.write({ 'stage_id' : tt_status_map[mv_ticket.statusid] })
+                    klog.create(cr, uid, {'config_id':sobj.id, 'message': "Ticket Status Updated (Moved Tickets) :" +str(mv_ticket.id)+" "+str(mv_ticket.displayid)})
+
+
+
+        return True
+
+    
+    def send_email(self, cr, uid, ids, context=None):
+        sobj = self.browse(cr,uid,ids[0])
+
+        if not sobj.admin_email:
+            _logger.warning('Kayako admin email is not configured, skipping email send')
+            return True
+
+        user = self.pool.get('res.users').browse(cr, uid, uid)
+        if not user.email:
+            _logger.warning('The current user must have an email address configured in User Preferences to be able to send outgoing emails.')
+            return True
+
+        mail_mail = self.pool.get('mail.mail')
+
+
+        mail_ids = []
+        subject = "Data sync completed from kayako to OpenERP"
+        body = _("Hello,\n\n")
+        body += _("PFA for the log file\n\n")
+        mail_ids.append(mail_mail.create(cr, uid, {
+                'email_from': user.email,
+                'email_to': email_to,
+                'subject': subject,
+                'body_html': '<pre>%s</pre>' % body}, context=context))
+        r = open('/opt/openerp/openerp/addons/kayako_connector/kayako_log.txt','rb').read().encode('base64')
+        attachment_data = { 'name': "kayako_log", 'datas_fname': "kayako_log", 'datas': r, 'res_model': mail_mail._name, }
+        attach_id = self.pool.get('ir.attachment').create(cr, uid, attachment_data, context=context)
+
+        mail_mail.write(cr, uid, mail_ids[0], {'attachment_ids': [(6, 0, [attach_id])]},context=context)
+        mail_mail.send(cr, uid, mail_ids, context=context)
+
+    def clear_logs(self, cr, uid, ids, context=None):
+        klog = self.pool.get('kayako.logs')
+        klog_ids = klog.search(cr, uid, [])
+        klog.unlink(cr, uid, klog_ids)
+        return True
+
+kayako_config()
+
+class kayako_department(osv.osv):
+    _name = 'kayako.department'
+    _columns = {
+                    'name' : fields.char('Name', size=256),
+                    'kayako_id' : fields.integer('Kayako Id'),
+    }
+kayako_department()
+
+class kayako_logs(osv.osv):
+    _name = 'kayako.logs'
+    _order = 'date desc, id desc'
+    _log_access = False    
+    _columns = {
+                    'config_id': fields.many2one('kayako.config', 'Kayako Configuration'),
+                    'date' : fields.datetime('Date'),
+                    'message': fields.char('Message', size=1024),
+                    'user'   : fields.char('User'),
+    }
+    _defaults = {
+                    'date' : lambda *a : time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'user' : lambda self, cr, uid, ctx : self.pool.get('res.users').browse(cr, uid, uid).name
+    }
+kayako_logs()

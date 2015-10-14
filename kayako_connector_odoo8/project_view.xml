@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<openerp>
+  <data>
+  
+    <record id="view_task_form2_kayako_inherit" model="ir.ui.view">
+      <field name="name">project.task.form.kayako</field>
+      <field name="model">project.task</field>
+      <field name="inherit_id" ref="project.view_task_form2" />
+      <field name="arch" type="xml">
+        <field name="planned_hours" position="after">
+          <field name="invoiced" readonly="1" />
+        </field>
+        <field name="date_deadline" position="before">
+          <field name="kayako_ticket_id" readonly="1" />
+          <field name="kayako_ticket_displayid" readonly="1" />
+        </field>
+      </field>
+    </record>
+
+    <record id="view_edit_project_kayako_inherit" model="ir.ui.view">
+      <field name="name">project.project.formkayako</field>
+      <field name="model">project.project</field>
+      <field name="inherit_id" ref="project.edit_project" />
+      <field name="arch" type="xml">
+        <button name="set_cancel" string="Cancel Project" type="object" states="open,pending" groups="base.group_user" position="after">
+          <button name="%(wizard_invoice_view)d" string="Generate Invoice" type="action" class="oe_highlight" />
+          <button name="validate_all_invoices" string="Validate Invoices" type="object" class="oe_highlight" />
+        </button>
+      </field>
+    </record>
+
+    <record id="action_view_task_non_invoiced" model="ir.actions.act_window">
+      <field name="name">Non-Invoiced Tasks</field>
+      <field name="res_model">project.task</field>
+      <field name="view_mode">kanban,tree,form,calendar,gantt,graph</field>
+      <field name="domain">[('invoiced','=',False),('stage_id.name','=','Billing')]</field>
+      <field name="search_view_id" ref="project.view_task_search_form" />
+    </record>
+
+    <menuitem action="action_view_task_non_invoiced" id="menu_action_view_task_noninvoiced" parent="project.menu_project_management" sequence="6" />
+
+  </data>
+</openerp>
