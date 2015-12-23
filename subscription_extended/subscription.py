@@ -4,10 +4,8 @@ from openerp.osv import fields,osv
 from openerp.tools.translate import _
 from openerp import netsvc
 
-
 from datetime import datetime
 import time
-
 
 class subscription_subscription(osv.osv):
     _inherit = "subscription.subscription"
@@ -29,22 +27,12 @@ class subscription_subscription(osv.osv):
     }
 
     def write(self, cr, uid, ids, vals, context=None):
-
-        print "\n\nwrite <sbscrpt.sbscrpt> :: sbscrpt_extnd ::ids",ids,"\tvals",vals
         self_data = self.browse(cr, uid, ids)
         so_tmpl_data = self.pool.get('sale.order.template').read(cr, uid, self_data.template_ids1.id)
-        print "\n  write <sbscrpt.sbscrpt> :: ::so_tmpl_data using template_ids1.id",so_tmpl_data
-
-        # so_tmpl_data = self.pool.get('sale.order.template').read(cr, uid, self_data.template_ids1.id)
-        # print "\n  write <sbscrpt.sbscrpt> :: ::so_tmpl_data using template_ids1.id",so_tmpl_data
         updated = super(subscription_subscription, self).write(cr, uid, ids, vals, context=context)
-        # print "\n5/0\n",5/0,"\n\n"
         return updated
 
     def create(self, cr, uid, vals, context=None):
-
-        print "\n\ncreate <sbscrpt.sbscrpt> :: sbscrpt_extnd ::vals",vals
-#         print "\n5/0\n",5/0,"\n\n"
         new_id = super(subscription_subscription, self).create(cr, uid, vals, context=context)
         self_data = self.browse(cr, uid, new_id)
         if self_data.template_ids1.sub_doc_id == False:
@@ -113,8 +101,6 @@ class subscription_subscription(osv.osv):
     
     def set_done(self, cr, uid, ids, context=None):
         res = self.read(cr,uid, ids, ['cron_id'])
-        # for x in res:
-        #     if x == 'cron_id':
         ids2 = [x['cron_id'][0] for x in res if x['id']]
         self.pool.get('ir.cron').write(cr, uid, ids2, {'active':False, 'doall': False})
         self.write(cr, uid, ids, {'state':'done'})
@@ -191,7 +177,7 @@ class subscription_subscription(osv.osv):
                 }
 
                 ### Browse template record to get values
-                print ">>>>>>>>>>>>>>>>>>>>", model_name_template
+                # print ">>>>>>>>>>>>>>>>>>>>", model_name_template
                 order_brw = self.pool.get(str(model_name_template)).browse(cr, uid, temp_id)
 
                 ### Create Dictionary for parent record
@@ -217,10 +203,10 @@ class subscription_subscription(osv.osv):
                                     'comment': row['note'],
                                     'company_id': order_brw.company_id.id
                                     })
-                    print "default",default
-                    print order_brw.name
-                    print order_brw.company_id.id
-                    print order_brw.company_id.name
+                    # print "default",default
+                    # print order_brw.name
+                    # print order_brw.company_id.id
+                    # print order_brw.company_id.name
                     if order_brw.invoice_type == 'out_invoice':
                         journal_ids = self.pool.get('account.journal').search(cr, uid, [('type', '=', 'sale'), ('company_id', '=', order_brw.company_id.id)], limit=1)
                         if not journal_ids:
