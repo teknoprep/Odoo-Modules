@@ -21,7 +21,11 @@
           <div>
             <field name="source_doc_id" on_change="onchange_source_doc(source_doc_id)" />
             <field name="temp_model" invisible="1" />
-            <field name="template_order_id" attrs="{'invisible': [('temp_model', '!=', 'sale.order.template')], 'required': [('temp_model', '=', 'sale.order.template')]}" domain="[('subcription_doc_id','=',source_doc_id),('recurring_record','=',True)]" on_change="onchange_template_first(template_order_id, source_doc_id)" context="{'default_recurring_record': True}" />
+            <field name="template_order_id" 
+            attrs="{'invisible': [('temp_model', '!=', 'sale.order.template')], 'required': [('temp_model', '=', 'sale.order.template')]}"
+             domain="[('subcription_doc_id','=',source_doc_id),('recurring_record','=',True)]"
+              on_change="onchange_template_first(template_order_id, source_doc_id)"
+             context="{'doc_id':id,'default_recurring_record': True}" />
           </div>
         </field>
         <separator string="Internal Notes" position="replace" />

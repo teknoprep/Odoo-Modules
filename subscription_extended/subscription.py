@@ -28,12 +28,38 @@ class subscription_subscription(osv.osv):
                     'doc_source' : 'res.partner,1'
     }
 
+    def write(self, cr, uid, ids, vals, context=None):
+
+        print "\n\nwrite <sbscrpt.sbscrpt> :: sbscrpt_extnd ::ids",ids,"\tvals",vals
+        self_data = self.browse(cr, uid, ids)
+        so_tmpl_data = self.pool.get('sale.order.template').read(cr, uid, self_data.template_ids1.id)
+        print "\n  write <sbscrpt.sbscrpt> :: ::so_tmpl_data using template_ids1.id",so_tmpl_data
+
+        # so_tmpl_data = self.pool.get('sale.order.template').read(cr, uid, self_data.template_ids1.id)
+        # print "\n  write <sbscrpt.sbscrpt> :: ::so_tmpl_data using template_ids1.id",so_tmpl_data
+        updated = super(subscription_subscription, self).write(cr, uid, ids, vals, context=context)
+        # print "\n5/0\n",5/0,"\n\n"
+        return updated
+
+    def create(self, cr, uid, vals, context=None):
+
+        print "\n\ncreate <sbscrpt.sbscrpt> :: sbscrpt_extnd ::vals",vals
+#         print "\n5/0\n",5/0,"\n\n"
+        new_id = super(subscription_subscription, self).create(cr, uid, vals, context=context)
+        self_data = self.browse(cr, uid, new_id)
+        if self_data.template_ids1.sub_doc_id == False:
+            context['from_subscription'] = self._data
+            self.pool.get('sale.order.template').write(cr, uid, self_data.template_ids1.id,
+                                                         {'sub_doc_id': self_data.id}, context)
+        return new_id
+
     def onchange_source_doc(self, cr, uid, ids, source_id, context=None):
         if source_id:
             return {'value': {'temp_model': 'sale.order.template'}}
         return {'value': {'temp_model': ''}}
 
     def onchange_template_first(self, cr, uid, ids, template_id1, source_doc_id, context=None):
+
         order_template = self.pool.get('sale.order.template')
         order_line = []
         order = []
@@ -42,6 +68,7 @@ class subscription_subscription(osv.osv):
         rec_model_name = ''
         if template_id1:
             order_brw = order_template.browse(cr, uid, template_id1)
+            
             for order_line_obj in order_brw.sale_order_line:
                 order_data = {
                     'name': order_line_obj.name,
@@ -53,24 +80,25 @@ class subscription_subscription(osv.osv):
                     'discount': order_line_obj.discount,
                     }
                 order_line.append((0,0,order_data))
-                
+
             data = {
                 'subcription_doc_id': order_brw.subcription_doc_id.id,
                 'name': order_brw.name,
                 'date_order': order_brw.date_order,
                 'pricelist_id': order_brw.pricelist_id.id,
                 'model_name': order_brw.model_name,
+                'sub_doc_id': ids and ids[0] or False,
                 'invoice_type': order_brw.invoice_type,
                 'sale_order_line': order_line,
+                'reccurring_record':True,
                 'company_id' : order_brw.company_id and order_brw.company_id.id or False 
                 }
             order.append((0,0,data))
-            
-            
+
             if source_doc_id:
                 sub_doc_brw = self.pool.get('subscription.document').browse(cr, uid, source_doc_id)
                 rec_model_name = sub_doc_brw.model.model
-                
+
             """Here we will create domain based on invoice type"""
             if order_brw.invoice_type == 'in_invoice':
                 part_ids = self.pool.get('res.partner').search(cr, uid, [('supplier','=',True)])
@@ -78,23 +106,32 @@ class subscription_subscription(osv.osv):
                 part_ids = self.pool.get('res.partner').search(cr, uid, [('customer','=',True)])
             else:
                 part_ids = self.pool.get('res.partner').search(cr, uid, [])
-                
+
         res['template_ids1'] = order
+        so_tmpl_data = self.pool.get('sale.order.template').read(cr, uid, self.browse(cr,uid,ids).template_ids1.id)
         return {'value': res, 'domain': {'partner_id': [('id', 'in', part_ids)]}}
     
     def set_done(self, cr, uid, ids, context=None):
         res = self.read(cr,uid, ids, ['cron_id'])
+        # for x in res:
+        #     if x == 'cron_id':
         ids2 = [x['cron_id'][0] for x in res if x['id']]
         self.pool.get('ir.cron').write(cr, uid, ids2, {'active':False, 'doall': False})
         self.write(cr, uid, ids, {'state':'done'})
         return True
-    
+
+    def set_draft(self, cr, uid, ids, context=None):
+        self.write(cr, uid, ids, {'state':'draft'})
+        return True
+
     def set_process(self, cr, uid, ids, context=None):
-        for row in self.read(cr, uid, ids, context=context):
+        data = self.read(cr, uid, ids, context=context)
+        for row in data:
             mapping = {'name':'name','interval_number':'interval_number','interval_type':'interval_type','exec_init':'numbercall','date_init':'nextcall'}
             res = {'model':'subscription.subscription', 'args': repr([[row['id']]]), 'function':'model_copy', 'priority':1, 'user_id':row['user_id'] and row['user_id'][0], 'doall':True}
             for key,value in mapping.items():
                 res[value] = row[key]
+
             id = self.pool.get('ir.cron').create(cr, uid, res)
             self.write(cr, uid, [row['id']], {'cron_id':id, 'state':'running'})
         return True
@@ -126,17 +163,18 @@ class subscription_subscription(osv.osv):
                     value = time.strftime('%Y-%m-%d')
                 else:
                     value = False
-                default[f.field.name] = value
+                if f.field.name != 'recurring_record':
+                    default[f.field.name] = value
 
             state = 'running'
-            
+
             # if there was only one remaining document to generate
             # the subscription is over and we mark it as being done
             if remaining == 1:
                 state = 'done'
-            
+
             if model_name_template == 'sale.order.template':
-                
+
                 part = self.pool.get('res.partner').browse(cr, uid, partner_id, context=context)
                 addr = self.pool.get('res.partner').address_get(cr, uid, [part.id], ['delivery', 'invoice', 'contact'])
                 pricelist = part.property_product_pricelist and part.property_product_pricelist.id or False
@@ -151,18 +189,17 @@ class subscription_subscription(osv.osv):
                     'fiscal_position': fiscal_position,
                     'user_id': dedicated_salesman,
                 }
-                
+
                 ### Browse template record to get values
                 print ">>>>>>>>>>>>>>>>>>>>", model_name_template
                 order_brw = self.pool.get(str(model_name_template)).browse(cr, uid, temp_id)
-                
+
                 ### Create Dictionary for parent record
                 default.update({
                     'partner_id': partner_id,
                     'payment_term': row['payment_term'] and row['payment_term'][0],
                     })
-                
-                
+
                 ### Here we have check which object should be used to create new record
                 ### Based on that assign values 
                 if model_name == 'sale.order':
@@ -170,7 +207,7 @@ class subscription_subscription(osv.osv):
                                     'partner_invoice_id': val['partner_invoice_id'],
                                     'pricelist_id': order_brw.pricelist_id.id,
                                     'date_order': time.strftime('%Y-%m-%d'),})
-                
+
                 if model_name == 'account.invoice':
                     default.update({'name': '',
 #                                    'date_invoice': order_brw.date_order, 
@@ -199,10 +236,10 @@ class subscription_subscription(osv.osv):
                             raise osv.except_osv(_('Error!'),
                                 _('Please define purchase journal for this company: "%s" (id:%d).') % (order_brw.company_id.name, order_brw.company_id.id))
                         default.update({'journal_id': journal_ids[0],})
-                        
+
                 ### CREate parent record for SO, and invoice
                 data_id = self.pool.get(str(model_name)).create(cr, uid, default)
-                
+
                 ### Now get values from template line to create order line (child records)
                 for order_line_obj in order_brw.sale_order_line:
                     if model_name == 'sale.order':
@@ -217,7 +254,7 @@ class subscription_subscription(osv.osv):
                             'discount': order_line_obj.discount,
                             }
                         self.pool.get('sale.order.line').create(cr, uid, order_data)
-                    
+
                     if model_name == 'account.invoice':
                         product_account_id = order_line_obj.product_id.property_account_income and order_line_obj.product_id.property_account_income.id or False
                         if not product_account_id:
@@ -238,14 +275,14 @@ class subscription_subscription(osv.osv):
                             'discount': order_line_obj.discount,
                             }
                         self.pool.get('account.invoice.line').create(cr, uid, order_data)
-                        
+
                 if model_name == 'account.invoice':
                     ### Pass signal to confirm the invoice and show in open state
                     self.pool.get('account.invoice').button_reset_taxes(cr, uid, [data_id])
                     if row['valid_invoice']:
                         wf_service = netsvc.LocalService("workflow")
                         wf_service.trg_validate(uid, 'account.invoice', data_id, 'invoice_open', cr)
-                    
+
                     """ Partner notify by mail after create invoice"""
                     email_template_obj = self.pool.get('email.template')
                     if row['notify_by_mail']:
@@ -254,9 +291,9 @@ class subscription_subscription(osv.osv):
                                                        'email_to':part.email,
                                                        })  
                         email_template_obj.send_mail(cr, uid, template.id, data_id , True, context=context)
-                            
+
             self.pool.get('subscription.subscription.history').create(cr, uid, {'subscription_id': row['id'], 'date':time.strftime('%Y-%m-%d %H:%M:%S'), 'document_id': model_name+','+str(data_id)})
             self.write(cr, uid, [row['id']], {'state':state})
         return True
-        
+
 subscription_subscription()
