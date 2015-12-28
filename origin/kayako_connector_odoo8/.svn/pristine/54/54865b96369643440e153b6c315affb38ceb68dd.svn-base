@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<openerp>
+  <data>
+
+		<record id="view_generate_invoice_for_tasks" model="ir.ui.view">
+		  <field name="name">generate.invoice.for.tasks</field>
+		  <field name="model">generate.invoice.for.tasks</field>
+		  <field name="arch" type="xml">
+		    <form string="Generate Invoices" version="7.0">
+		      <p class="oe_grey">Invoices are generated for all selected task, there will be one invoice for each partner.
+		                        Note: Invoice is generated for Primary contact of the partner of a project</p>
+		      <footer>
+		        <button string="Generate Invoices" name="generate_invoice" type="object" default_focus="1" class="oe_highlight" />
+		        or
+		        <button string="Cancel" class="oe_link" special="cancel" />
+		      </footer>
+		    </form>
+		  </field>
+		</record>
+
+    <act_window 
+                    id = "action_generate_invoice_for_tasks"
+                    name = "Generate Invoices"
+                    src_model = "project.task"
+                    res_model = "generate.invoice.for.tasks" 
+                    view_type = "form"
+                    view_mode = "form" 
+                    multi =" True"
+                    key2 = "client_action_multi" 
+                    target = "new" />
+                    
+            
+        </data>
+</openerp>

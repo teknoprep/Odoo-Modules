@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<openerp>
+  <data>
+
+    <record id="view_kayako_config_form" model="ir.ui.view">
+      <field name="name">kayako Connector</field>
+      <field name="model">kayako.config</field>
+      <field name="arch" type="xml">
+        <form string="Kayako Connector" version="7.0">
+          <header>
+            <button name="test_connection" string="Test Connection" type="object" states="draft"/>
+            <button name="import_ticket_status" string="Import Ticket States" type="object" states="connected"/>
+            <button name="import_departments" string="Import Departments" type="object" states="connected"/>
+            <button name="import_ticket" string="Import Tickets" type="object" states="connected" class="oe_highlight"/>
+            <button name="clear_logs" string="Clear Logs" type="object"/>
+            <field name="state" widget="statusbar" statusbar_visible="draft,connected" />
+          </header>
+          <sheet>
+            <group>
+              <field name="api_url" attrs="{'readonly':[('state','=','connected')]}" />
+              <field name="api_key" attrs="{'readonly':[('state','=','connected')]}" password="1"/>
+              <field name="secret_key" attrs="{'readonly':[('state','=','connected')]}" password="1"/>
+            </group>
+            <group>
+	            <group>
+	              <field name="product_id" required="1" domain="[('type','=','service')]" />
+	              <field name="department_id" widget="selection" />
+	            </group>
+              <group>
+                <field name="ticket_state" widget="selection" domain="[('kayako_id','&gt;',0)]"/>
+                <field name="export_state" widget="selection" domain="[('kayako_id','&gt;',0)]"/>
+                <field name="create_user" />
+                <field name="admin_email" />
+              </group>
+            </group>
+            <notebook>
+              <page string="Logs">
+                <field name="log_ids" colspan="4" nolabel="1">
+                  <tree create="false" edit="false">
+                    <field name="date"/>
+                    <field name="user"/>
+                    <field name="message"/>
+                  </tree>
+                </field>
+              </page>
+            </notebook>
+          </sheet>
+        </form>
+      </field>
+    </record>
+
+    <record id="view_kayako_config_tree" model="ir.ui.view">
+      <field name="name">Kayako Setting</field>
+      <field name="model">kayako.config</field>
+      <field name="arch" type="xml">
+        <tree string="Kayako Connector">
+          <field name="api_url" />
+        </tree>
+      </field>
+    </record>
+
+    <record model="ir.actions.act_window" id="kayako_action_form">
+      <field name="name">Kayako Settings</field>
+      <field name="type">ir.actions.act_window</field>
+      <field name="res_model">kayako.config</field>
+      <field name="view_type">form</field>
+      <field name="view_mode">tree,form</field>
+    </record>
+
+    <menuitem action="kayako_action_form" id="kayako_config_form_add" parent="base.menu_config" sequence="100" />
+
+
+  </data>
+</openerp>
