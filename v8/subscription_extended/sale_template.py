@@ -14,7 +14,7 @@ class sale_order_line_template(osv.osv):
         if context is None:
             context = {}
         for line in self.browse(cr, uid, ids, context=context):
-            subtotal = line.product_id.list_price * line.product_uom_qty
+            subtotal = line.price_unit * line.product_uom_qty
             res[line.id] = subtotal
         return res
     
@@ -95,37 +95,78 @@ class sale_order_template(osv.osv):
         so_tmplt_brw = self.browse(cr, uid, ids)
         subscription_obj = self.pool.get('subscription.subscription')
         search_ids = subscription_obj.search(cr, uid, [('template_order_id','=', ids[0])])
-
         for_line_ids = []
         if search_ids :
             subscription = subscription_obj.browse(cr, uid, search_ids)
-            for_line_ids.append(subscription.template_order_id.id)
             for_line_ids.append(subscription.template_ids1.id)
         for_line_ids = list(set(for_line_ids))
-
         so_line_tmpl_obj = self.pool.get('sale.order.line.template')
-        if vals.has_key('sale_order_line'):
-            sale_order_line = vals.get('sale_order_line')
-            for line in sale_order_line:
-                if line[0] == 1 and line[1] in for_line_ids:
-                    so_line_tmpl_obj.write(cr,uid, for_line_ids, line[2])
 
-        # updated = super(sale_order_template, self).write(cr, uid, ids, vals, context=context)
+        related_so_line_tmpls = self.read(cr,uid, for_line_ids)
 
-        if search_ids and subscription_obj.browse(cr, uid, search_ids).state == "running":
-            context['from_SOT'] = True
-            subscription_obj.set_done(cr, uid, search_ids, context=context)
-            subscription_obj.set_draft(cr, uid, search_ids, context=context)
-            subscription_obj.set_process(cr, uid, search_ids, context=context)
-        return super(sale_order_template, self).write(cr, uid, ids, vals, context=context)
+        updated = super(sale_order_template, self).write(cr, uid, ids, vals, context=context)
+        for related_so_line in related_so_line_tmpls:
+            so_line_tmpl_obj.unlink(cr,uid, related_so_line['sale_order_line'])
+
+        new_line_vals = []
+        for line_id in self.read(cr,uid, ids[0])['sale_order_line']:
+            current_line = so_line_tmpl_obj.read(cr,uid,line_id)
+            new_line_val = {}
+            new_line_val['discount'] = current_line['discount']
+            new_line_val['order_temp_id'] = False
+            new_line_val['name'] = current_line['name']
+            new_line_val['product_id'] = current_line['product_id'][0]
+            new_line_val['product_uom'] = current_line['product_uom'][0]
+            new_line_val['product_uom_qty'] = current_line['product_uom_qty']
+            new_line_val['price_unit'] = current_line['price_unit']
+            new_line_val['tax_id'] = current_line['tax_id']
+            new_line_vals.append(new_line_val)
+
+        for other_line_id in for_line_ids:
+            for line_val in new_line_vals:
+                line_val['order_temp_id'] = other_line_id
+                so_line_tmpl_obj.create(cr,uid,line_val)
+
+        subscription_state = subscription_obj.browse(cr, uid, search_ids).state
+
+        # from set_done() ... 
+        res = subscription_obj.read(cr, uid, search_ids, ['cron_id'])
+        ids2 = [x['cron_id'][0] for x in res if x['id']]
+        self.pool.get('ir.cron').write(cr, uid, ids2, {'active':False, 'doall': False})
+
+        # from set_process() 
+        data = subscription_obj.read(cr, uid, search_ids, context=context)
+        for row in data:
+            mapping = {'name':'name',
+                        'interval_number':'interval_number',
+                        'interval_type':'interval_type',
+                        'exec_init':'numbercall',
+                        'date_init':'nextcall'
+                        }
+            res = {'model':'subscription.subscription',
+                    'args': repr([[row['id']]]),
+                    'function':'model_copy',
+                    'priority':1,
+                    'user_id':row['user_id'] and row['user_id'][0],
+                    'doall':False}
+            for key,value in mapping.items():
+                res[value] = row[key]
+            context.update({'from_subscription':True})
+            if res and res.has_key('nextcall'):
+                nextcall = self.pool.get('ir.cron').read(cr, uid, ids2)
+                res['nextcall'] = nextcall[0]['nextcall']
+            id = self.pool.get('ir.cron').create(cr, uid, res,context=context)
+            subscription_obj.write(cr, uid, [row['id']], {'cron_id':id, 'state':'running'})
+
+        return updated
+
 
     def create(self, cr, uid, vals, context=None):
         context = context or {}
         if context.get('doc_id',False):
             vals['sub_doc_id'] = context['doc_id']
-
         if vals.get('name','/')=='/':
             vals['name'] = self.pool.get('ir.sequence').get(cr, uid, 'sale.order.template') or '/'
+        return super(sale_order_template, self).create(cr, uid, vals, context=context)
 
-        return super(sale_order_template, self).create(cr, uid, vals, context=context)    
 sale_order_template()

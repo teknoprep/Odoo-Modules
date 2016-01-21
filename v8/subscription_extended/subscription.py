@@ -4,8 +4,10 @@ from openerp.osv import fields,osv
 from openerp.tools.translate import _
 from openerp import netsvc
 
+
 from datetime import datetime
 import time
+
 
 class subscription_subscription(osv.osv):
     _inherit = "subscription.subscription"
@@ -27,8 +29,6 @@ class subscription_subscription(osv.osv):
     }
 
     def write(self, cr, uid, ids, vals, context=None):
-        self_data = self.browse(cr, uid, ids)
-        so_tmpl_data = self.pool.get('sale.order.template').read(cr, uid, self_data.template_ids1.id)
         updated = super(subscription_subscription, self).write(cr, uid, ids, vals, context=context)
         return updated
 
@@ -113,12 +113,23 @@ class subscription_subscription(osv.osv):
     def set_process(self, cr, uid, ids, context=None):
         data = self.read(cr, uid, ids, context=context)
         for row in data:
-            mapping = {'name':'name','interval_number':'interval_number','interval_type':'interval_type','exec_init':'numbercall','date_init':'nextcall'}
-            res = {'model':'subscription.subscription', 'args': repr([[row['id']]]), 'function':'model_copy', 'priority':1, 'user_id':row['user_id'] and row['user_id'][0], 'doall':True}
+            mapping = {'name':'name',
+                        'interval_number':'interval_number',
+                        'interval_type':'interval_type',
+                        'exec_init':'numbercall',
+                        'date_init':'nextcall'
+                        }
+            res = {'model':'subscription.subscription',
+                    'args': repr([[row['id']]]),
+                    'function':'model_copy',
+                    'priority':1,
+                    'user_id':row['user_id'] and row['user_id'][0],
+                    'doall':False}
             for key,value in mapping.items():
                 res[value] = row[key]
 
-            id = self.pool.get('ir.cron').create(cr, uid, res)
+            context.update({'from_subscription':True})
+            id = self.pool.get('ir.cron').create(cr, uid, res,context=context)
             self.write(cr, uid, [row['id']], {'cron_id':id, 'state':'running'})
         return True
 
@@ -177,7 +188,7 @@ class subscription_subscription(osv.osv):
                 }
 
                 ### Browse template record to get values
-                # print ">>>>>>>>>>>>>>>>>>>>", model_name_template
+                print ">>>>>>>>>>>>>>>>>>>>", model_name_template
                 order_brw = self.pool.get(str(model_name_template)).browse(cr, uid, temp_id)
 
                 ### Create Dictionary for parent record
@@ -203,10 +214,10 @@ class subscription_subscription(osv.osv):
                                     'comment': row['note'],
                                     'company_id': order_brw.company_id.id
                                     })
-                    # print "default",default
-                    # print order_brw.name
-                    # print order_brw.company_id.id
-                    # print order_brw.company_id.name
+                    print "default",default
+                    print order_brw.name
+                    print order_brw.company_id.id
+                    print order_brw.company_id.name
                     if order_brw.invoice_type == 'out_invoice':
                         journal_ids = self.pool.get('account.journal').search(cr, uid, [('type', '=', 'sale'), ('company_id', '=', order_brw.company_id.id)], limit=1)
                         if not journal_ids:
