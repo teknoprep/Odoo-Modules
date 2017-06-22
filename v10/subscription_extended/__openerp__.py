@@ -15,7 +15,9 @@
     'demo': [],
     'test': [],
     'update_xml': [
-
+                    'subscription_view.xml',
+                    'sale_template_view.xml',
+                    'security/ir.model.access.csv',
         ],
     'installable': True,
     'auto_install': False,
