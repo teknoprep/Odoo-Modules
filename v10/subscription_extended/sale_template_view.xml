@@ -1,12 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <openerp>
-  <!-- <data noupdate="1"> -->
   <data >
-
-	  <!-- <record id="seq_type_sale_order_template" model="ir.sequence.type"> -->
-	    <!-- <field name="name">Sale Order Template</field> -->
-	    <!-- <field name="code">sale.order.template</field> -->
-	  <!-- </record> -->
 
     <record id="seq_sale_order_template" model="ir.sequence">
 	    <field name="name">Sale Order Template</field>
@@ -27,18 +21,14 @@
           <sheet>
             <group>
               <group>
-                <field name="name" class="oe_inline"  />
-                <field name="sub_doc_id"  />
+                <field name="name" class="oe_inline" readonly="1" />
                 <field name="subcription_doc_id" domain="[('active','=',True)]"  />
-                <!-- <field name="subcription_doc_id" domain="[('active','=',True)]" on_change="onchange_sub_doc(subcription_doc_id)" /> -->
-                <field name="partner_id" />
+                <field name="partner_id" invisible="1" />
               </group>
               <group>
                 <field name="date_order" />
-                <!-- <field domain="[('type','=','sale')]" name="pricelist_id" on_change="onchange_pricelist_id(pricelist_id,sale_order_line)" attrs="{'invisible': [('model_name', '!=', 'sale.order')], 'required': [('model_name', '==', 'sale.order')]}"/> -->
                 <field domain="[('type','=','sale')]" name="pricelist_id" attrs="{'invisible': [('model_name', '!=', 'sale.order')], 'required': [('model_name', '==', 'sale.order')]}"/>
                 <field name="recurring_record" invisible="1" />
-                <!-- <field name="model_id"/> -->
                 <field name="model_name" invisible="1" />
                 <field name="invoice_type" attrs="{'invisible': [('model_name', '!=', 'account.invoice')], 'required': [('model_name', '==', 'account.invoice')]}" />
                 <field name="company_id" attrs="{'invisible': [('model_name', '!=', 'account.invoice')], 'required': [('model_name', '==', 'account.invoice')]}" />
@@ -48,9 +38,8 @@
               <page string="Order Lines">
                 <field name="sale_order_line">
                   <tree string="Template Lines" editable="bottom">
-                    <field name="product_id" groups="base.group_user" on_change="product_id_change(product_id, parent.invoice_type)" />
+                    <field name="product_id" groups="base.group_user" />
                     <field name="name" />
-                    <!-- <field name="product_uom_qty" on_change="product_id_change(product_id, parent.invoice_type)" /> -->
                     <field name="product_uom_qty" />
                     <field name="product_uom" />
                     <field name="price_unit" />
@@ -97,9 +86,6 @@
                 id="menu_subscription_templates_form"
                 parent="menu_subscription"
                 sequence="15"/>
-
-
-    <menuitem id="menu_automation" name="Automation" parent="base.menu_custom"/>
 
   </data>
 </openerp>
