@@ -286,9 +286,10 @@ class subscription_subscription(models.Model):
 #                     """ Partner notify by mail after create invoice"""
                     email_template_obj = self.env['mail.template']
                     if row['notify_by_mail']:
-                        template = self.env['ir.model.data'].get_object('account', 'email_template_edi_invoice')[1]
-                        email_template_obj.sudo().browse(template).write({'email_to':part.email})
-                        email_template_obj.sudo().browse(template).send_mail(data_id and data_id.id or False, force_send=True)
+                        template = self.env['ir.model.data'].get_object('account', 'email_template_edi_invoice')
+                        if template:
+                            email_template_obj.sudo().browse(template.id).write({'email_to':part.email})
+                            email_template_obj.sudo().browse(template.id).send_mail(data_id and data_id.id or False, force_send=True)
 
             self.write({'state':state})
         return True
