@@ -281,12 +281,13 @@ class subscription_subscription(models.Model):
 
                 if model_name == 'account.invoice':
                     # Pass signal to confirm the invoice and show in open state
-                    # if self.
-                    #     data_id.action_invoice_open()
+                    if self.valid_invoice:
+                        data_id.action_invoice_open()
+                    
 
 #                     """ Partner notify by mail after create invoice"""
                     email_template_obj = self.env['mail.template']
-                    if row['notify_by_mail']:
+                    if self.notify_by_mail:
                         template = self.env['ir.model.data'].get_object('account', 'email_template_edi_invoice')
                         if template:
                             email_template_obj.sudo().browse(template.id).write({'email_to':part.email})
