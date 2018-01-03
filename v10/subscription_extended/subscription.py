@@ -281,7 +281,8 @@ class subscription_subscription(models.Model):
 
                 if model_name == 'account.invoice':
                     # Pass signal to confirm the invoice and show in open state
-                    data_id.action_invoice_open()
+                    # if self.
+                    #     data_id.action_invoice_open()
 
 #                     """ Partner notify by mail after create invoice"""
                     email_template_obj = self.env['mail.template']
