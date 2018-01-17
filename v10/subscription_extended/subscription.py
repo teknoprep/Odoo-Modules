@@ -240,7 +240,7 @@ class subscription_subscription(models.Model):
                                 _('Please define purchase journal for this company: "%s" (id:%d).') % (order_brw.company_id.name, order_brw.company_id.id))
                         default.update({'journal_id': journal_ids.id, })
 
-                # CREate parent record for SO, and invoice
+                # Create parent record for SO, and invoice
                 data_id = self.env[str(model_name)].sudo().create(default)
 
                 # Now get values from template line to create order line (child records)
@@ -292,5 +292,6 @@ class subscription_subscription(models.Model):
                             email_template_obj.sudo().browse(template.id).write({'email_to':part.email})
                             email_template_obj.sudo().browse(template.id).send_mail(data_id and data_id.id or False, force_send=True)
 
+            self.env['subscription.subscription.history'].sudo().create({'subscription_id': row['id'],'date':time.strftime('%Y-%m-%d %H:%M:%S'),'document_id': (model_name + ',' + str(data_id.id))})
             self.write({'state':state})
         return True
