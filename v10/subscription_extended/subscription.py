@@ -291,7 +291,9 @@ class subscription_subscription(models.Model):
                         if template:
                             email_template_obj.sudo().browse(template.id).write({'email_to':part.email})
                             email_template_obj.sudo().browse(template.id).send_mail(data_id and data_id.id or False, force_send=True)
+                            email_template_obj.sudo().browse(template.id).write({'email_to':''})
 
             self.env['subscription.subscription.history'].sudo().create({'subscription_id': row['id'],'date':time.strftime('%Y-%m-%d %H:%M:%S'),'document_id': (model_name + ',' + str(data_id.id))})
             self.write({'state':state})
         return True
+

@@ -9,12 +9,7 @@ class sale_order_line_template(models.Model):
 
     @api.multi
     def _amount_line(self):
-        res = {}
-        subtotal = 0.0
-        for line in self.browse(self.ids):
-            subtotal = line.price_unit * line.product_uom_qty
-            res[line.id] = subtotal
-        return res
+        self.price_subtotal = self.price_unit * self.product_uom_qty
 
     order_temp_id = fields.Many2one('sale.order.template','Sale Order template')
     product_id =  fields.Many2one('product.product', 'Product', required=True)
@@ -27,10 +22,10 @@ class sale_order_line_template(models.Model):
     price_subtotal = fields.Float(compute=_amount_line, string='Subtotal', digits= dp.get_precision('Account'))
 
     _defaults = {
-                    'product_uom_qty': 1,
+        'product_uom_qty': 1,
     }
 
-    @api.onchange('product_id')
+    @api.onchange('product_id','product_uom_qty', 'price_unit')
     def product_id_change(self):
         res = {}
 
@@ -38,8 +33,9 @@ class sale_order_line_template(models.Model):
            product = self.env['product.product'].browse(self.product_id.id)
            res = {'name' : product.name, 'product_uom': product.uom_id.id, 'price_unit': product.list_price}
            if self.order_temp_id and self.order_temp_id.invoice_type and self.order_temp_id.invoice_type == 'in_invoice':
-               res['price_unit'] = product.standard_price,
+               res['price_unit'] = product.standard_price
                res['product_uom'] = product.uom_po_id.id
+           res['price_subtotal'] = res['price_unit'] * self.product_uom_qty
         return {'value': res}
 
 sale_order_line_template()
