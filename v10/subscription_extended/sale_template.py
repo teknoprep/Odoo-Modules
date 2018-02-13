@@ -9,7 +9,8 @@ class sale_order_line_template(models.Model):
 
     @api.multi
     def _amount_line(self):
-        self.price_subtotal = self.price_unit * self.product_uom_qty
+        for line_obj in self:
+            line_obj.price_subtotal = line_obj.price_unit * line_obj.product_uom_qty
 
     order_temp_id = fields.Many2one('sale.order.template','Sale Order template')
     product_id =  fields.Many2one('product.product', 'Product', required=True)
