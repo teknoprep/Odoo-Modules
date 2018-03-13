@@ -26,17 +26,30 @@ class sale_order_line_template(models.Model):
         'product_uom_qty': 1,
     }
 
-    @api.onchange('product_id','product_uom_qty', 'price_unit')
+    @api.onchange('product_id')
     def product_id_change(self):
         res = {}
 
         if self.product_id:
-           product = self.env['product.product'].browse(self.product_id.id)
-           res = {'name' : product.name, 'product_uom': product.uom_id.id, 'price_unit': product.list_price}
-           if self.order_temp_id and self.order_temp_id.invoice_type and self.order_temp_id.invoice_type == 'in_invoice':
-               res['price_unit'] = product.standard_price
-               res['product_uom'] = product.uom_po_id.id
-           res['price_subtotal'] = res['price_unit'] * self.product_uom_qty
+            product = self.env['product.product'].browse(self.product_id.id)
+            res = {'name' : product.name, 'product_uom': product.uom_id.id, 'price_unit': product.list_price}
+
+            if self.order_temp_id and self.order_temp_id.invoice_type and self.order_temp_id.invoice_type == 'in_invoice':
+
+                res['price_unit'] = product.standard_price
+                res['product_uom'] = product.uom_po_id.id
+
+        return {'value': res}
+
+    @api.onchange('product_uom_qty', 'price_unit')
+    def qty_price_change(self):
+        res = {}
+
+        if self.product_id:
+            product = self.env['product.product'].browse(self.product_id.id)
+            if self.order_temp_id and self.order_temp_id.invoice_type and self.order_temp_id.invoice_type == 'in_invoice':
+                res['price_unit'] = self.price_unit
+                res['price_subtotal'] = res['price_unit'] * self.product_uom_qty
         return {'value': res}
 
 sale_order_line_template()
